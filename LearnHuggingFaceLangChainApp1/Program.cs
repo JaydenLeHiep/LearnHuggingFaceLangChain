@@ -1,33 +1,39 @@
-﻿using Microsoft.ML.OnnxRuntimeGenAI;
+﻿using LearnHuggingFaceLangChainApp1.Data;
+using LearnHuggingFaceLangChainApp1.LLM;
+using LearnHuggingFaceLangChainApp1.Repositories;
+using LearnHuggingFaceLangChainApp1.Services;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
-using OgaHandle ogaHandle = new OgaHandle();
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(Directory.GetCurrentDirectory())
+    .AddJsonFile("appsettings.json", optional: false)
+    .Build();
+
+var conString = configuration.GetConnectionString("DefaultConnection") ??
+                throw new InvalidOperationException(
+                    "Connection string 'DefaultConnection' not found.");
+var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>()
+    .UseNpgsql(conString)
+    .Options;
+
+using var db = new ApplicationDbContext(optionsBuilder);
+var repo = new ChatHistoryRepository(db);
 
 var modelPath = "/Users/hieple/RiderProjects/LearnHuggingFaceLangChain/Models/models/phi3-mini-4k-instruct-onnx/cpu_and_mobile/cpu-int4-rtn-block-32";
-using var model = new Model(modelPath);
-using var tokenizer = new Tokenizer(model);
+using var llm = new OnnxModelClient(modelPath);
 
-using var gen = new GeneratorParams(model);
-gen.SetSearchOption("max_length", 256);
-gen.SetSearchOption("temperature", 0.7);
-gen.SetSearchOption("top_p", 0.95);
+var chat = new ChatService(repo, llm);
 
-var input = tokenizer.Encode("You are helpful.\nQ: What is API?\nA:");
-
-using var generator = new Generator(model, gen);
-// Newer migration path: append sequences on the generator
-// (exact name per your version—common names seen were AppendTokenSequences / AppendSequences)
-generator.AppendTokenSequences(input);        // <-- per migrate guide
-
-using var stream = tokenizer.CreateStream();
-while (!generator.IsDone())
+var sessionId = Guid.NewGuid().ToString();
+Console.WriteLine("Type your question (empty = exit).");
+while (true)
 {
-    generator.GenerateNextToken();
-    var tokens = generator.GetSequence(0);
-    var lastId = tokens[^1];
-    var piece = stream.Decode(lastId);
-    Console.Write(piece);
-}
+    Console.Write("> ");
+    var text = Console.ReadLine();
+    if (string.IsNullOrWhiteSpace(text)) break;
 
-// Or decode full sequence after done:
-var full = tokenizer.Decode(generator.GetSequence(0));
-Console.WriteLine(full);
+    var reply = await chat.SendAsync(sessionId, text);
+    Console.WriteLine($"\nAssistant: {reply}\n");
+}
+            
