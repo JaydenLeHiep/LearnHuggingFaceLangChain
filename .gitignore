@@ -6,3 +6,5 @@
 
 # Models folders (anywhere in repo)
 **/Models/
+**/bin/
+**/obj/
